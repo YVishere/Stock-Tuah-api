@@ -8,13 +8,13 @@ import pandas as pd
 
 app = FastAPI()
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 temp_csv_files = glob.glob('datasets_chosen/*.csv')
 csv_files = [os.path.basename(file) for file in temp_csv_files]
