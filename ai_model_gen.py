@@ -74,13 +74,13 @@ def startTrain(model, price, volume, date, price_scaler):
         batch_size = 8
     else:
         batch_size = 16
-    epochs = 50
+    epochs = 8
 
     dataset = TimeSeriesDataset(price, volume, price_history_len + 1)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     fit(model, loss, dataloader, epochs=epochs)
     
-    graphIt(dataset, model, price, date, price_scaler)
+    # graphIt(dataset, model, price, date, price_scaler)
 
 def create_model(filename):
     df = pd.read_csv(filename)
@@ -164,7 +164,8 @@ def main():
 
     csv_list = glob.glob('datasets_chosen/*.csv')
 
-    for csv_file in csv_list[:2]:
+    for ind,csv_file in enumerate(csv_list):
+        print(f"Training model {ind+1}/{len(csv_list)}")
         model = create_model(csv_file)
 
 if __name__ == '__main__':

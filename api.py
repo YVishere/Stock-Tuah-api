@@ -30,7 +30,7 @@ for endpoint in csv_files:
     @app.get(f"/{endpoint}")
     def dynamic_endpoint(endpoint = endpoint):
         data = pd.read_csv(f"datasets_chosen/{endpoint}")
-        return data.to_dict()
+        return {"Date": data['Date'].values.tolist(), "Price": data['Close'].values.tolist(), "Volume": data['Volume'].values.tolist()}
 
 if __name__ == "__main__":
     import uvicorn
