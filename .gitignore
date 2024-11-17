@@ -1,6 +1,3 @@
 !.gitignore
 
-datasets_chosen/*
-models/*
 *.ipynb
-modded_datasets/*
