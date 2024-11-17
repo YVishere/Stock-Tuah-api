@@ -7,6 +7,7 @@ import os
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+import numpy as np
 
 class TimeSeriesDataset(Dataset):
     def __init__(self, time_series, time_seriesVol, sequence_length):
@@ -18,53 +19,52 @@ class TimeSeriesDataset(Dataset):
         return len(self.time_series) - self.sequence_length
 
     def __getitem__(self, idx):
-        price_sequence = torch.tensor(self.time_series[idx : idx + self.sequence_length],dtype=torch.float32)
-        volume_sequence = torch.tensor(self.time_seriesVol[idx : idx + self.sequence_length], dtype = torch.float32)
-        return price_sequence
+        price_sequence = torch.tensor(self.time_series[idx : idx + self.sequence_length], dtype=torch.float32).unsqueeze(-1)
+        volume_sequence = torch.tensor(self.time_seriesVol[idx : idx + self.sequence_length], dtype=torch.float32).unsqueeze(-1)
+        sequence = torch.cat([price_sequence, volume_sequence], dim=-1)
+        return sequence
 
-def modelRNN(price_history_len = 9):
-    model = nn.Linear(price_history_len, 1, bias = True)
-    return model
+class LSTMModel(nn.Module):
+    def __init__(self, input_size=2, hidden_size=128, num_layers=3, output_size=2):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_lstm_out = lstm_out[:, -1, :]
+        output = self.fc(last_lstm_out)
+        return output
 
 def loss(pred, y):
-    """Mean Absolute Error loss"""
-    return (pred - y).abs().mean()
+    return ((pred - y) ** 2).mean()
 
 def train(model, loss, dataloader, optimizer):
-    """Helper function to train our model."""
     total_error = 0.
     for it, sequences in enumerate(dataloader):
         optimizer.zero_grad()
-        # Prepare model inputs and targets
-        price_history = sequences[: ,:-1]
-        target = sequences[:,-1]
+        price_history = sequences[:, :-1]
+        target = sequences[:, -1].flatten()
 
-        # Compute model predictions
         pred = model(price_history)
         pred = pred.flatten()
 
-        # Compute the loss
         l = loss(pred, target)
         total_error += l.item()
 
-        # Update the weights
         l.backward()
         optimizer.step()
 
     return total_error / len(dataloader)
 
-def fit(model, loss, dataloader, epochs=300, lr = 0.001):
+def fit(model, loss, dataloader, epochs=300, lr=0.0001):
     prev_err = 0
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     for ep in range(epochs):
         err = train(model, loss, dataloader, optimizer)
-        print(f"[Ep{ep}] Error {err:.3f}")
-        if abs(err - prev_err) < 0.01 and err < 0.236:
-            break
-        prev_err = err
+        print(f"[Ep{ep}] Error {err}")
 
-def startTrain(model, price, volume, date):
-    #Hyperparameters
+def startTrain(model, price, volume, date, price_scaler):
     price_history_len = 9
     if len(price) < 200:
         batch_size = 2
@@ -74,14 +74,13 @@ def startTrain(model, price, volume, date):
         batch_size = 8
     else:
         batch_size = 16
-    epochs = 300
+    epochs = 50
 
-    dataset = TimeSeriesDataset(price, volume, price_history_len+1)
+    dataset = TimeSeriesDataset(price, volume, price_history_len + 1)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     fit(model, loss, dataloader, epochs=epochs)
-    graphIt(dataset, model, price, date)
-
-    predict_and_graph(model, dataset)
+    
+    graphIt(dataset, model, price, date, price_scaler)
 
 def create_model(filename):
     df = pd.read_csv(filename)
@@ -89,42 +88,57 @@ def create_model(filename):
     time_seriesVol = df['Volume'].values
     date = df['Date'].values
 
-    model = modelRNN()
+    price_scaler = MinMaxScaler(feature_range=(0,1))
+    time_series = price_scaler.fit_transform(time_series.reshape(-1, 1)).flatten()
+    volume_scaler = MinMaxScaler(feature_range=(0,1))
+    time_seriesVol = volume_scaler.fit_transform(time_seriesVol.reshape(-1, 1)).flatten()
+
+    model = LSTMModel()
+
     name = os.path.basename(filename)
 
-    startTrain(model, time_series, time_seriesVol,date)
+    startTrain(model, time_series, time_seriesVol, date, price_scaler)
 
     torch.save(model.state_dict(), os.path.join('models', f"{os.path.basename(name[:name.rfind('.')])}.pth"))
     return model
 
-def main():
-    dir_path = 'models'
-
-    pth_files = glob.glob(dir_path + "/*.pth")
-    for pth_file in pth_files:
-        os.remove(pth_file)
-        print(f"Deleted {pth_file}")
-
-    csv_list = glob.glob('datasets_chosen/*.csv')
-
-    for csv_file in csv_list[:3]:
-        model = create_model(csv_file)
-        
-
-def graphIt(dataset, model, price, date):
+def graphIt(dataset, model, price, date, price_scaler):
     with torch.no_grad():
         predictions, errors = [], []
         for i in range(len(dataset)):
             sequence = dataset[i]
-            past, price_gt = sequence[:-1], sequence[-1]
+            past, price_gt = sequence[:-1], sequence[-1, 0]
+            past = past.unsqueeze(0)
             price_pred = model(past)
-
+            price_pred = price_pred[-1,0].item()
             err = price_pred - price_gt
+            errors.append(err)
+            predictions.append(price_pred)
 
-            errors.append(err.item())
-            predictions.append(price_pred.item())
+    predictions = price_scaler.inverse_transform(np.array(predictions).reshape(-1, 1)).flatten()
+    price = price_scaler.inverse_transform(np.array(price).reshape(-1, 1)).flatten()
 
-    plt.plot([None]*9+predictions, label='prediction')
+    future = []
+    toUse = dataset[len(dataset)-4]
+    toUse = toUse[1:]
+    alpha = 0.8
+    for i in range(100):
+        toUse = toUse.unsqueeze(0)
+        pred = model(toUse)
+        price_pred = pred[-1,0].item()
+        price_pred = alpha * price_pred + (1 - alpha) * toUse[-1, 0, 0].item()
+        volume_pred = pred[-1,1].item()
+        print(price_pred, volume_pred)
+        print("--------------------")
+        future.append(price_pred)
+        toUse = toUse.squeeze(0)
+        toUse = toUse[1:]
+        print(toUse.shape)
+        toUse = torch.cat([toUse, torch.tensor([[price_pred, volume_pred]], dtype=torch.float32)], dim=0)
+
+    future = price_scaler.inverse_transform(np.array(future).reshape(-1, 1)).flatten()
+
+    plt.plot([None]*9+predictions.tolist(), label='prediction')
     plt.plot(price, label='ground truth')
     plt.ylabel('Bitcoin Price [$]')
     plt.gca().set_xticklabels(date, rotation=30)
@@ -137,37 +151,21 @@ def graphIt(dataset, model, price, date):
     plt.title('Histogram of Errors')
     plt.show()
 
-def predict_and_graph(model, dataset, initial_sequence_len=9, num_predictions=100):
-    with torch.no_grad():
-        # Initial sequence for prediction
-        initial_sequence = dataset[0][:initial_sequence_len]  # Take the first sequence from the dataset
+    plt.plot(future, label='future')
+    plt.show()
 
-        # Prepare the data for prediction
-        predictions = []
-        sequence = initial_sequence.tolist()  # Convert tensor to list for further manipulation
+def main():
+    dir_path = 'models'
 
-        # Predict the next 100 points
-        for _ in range(num_predictions):
-            # Prepare the current sequence (last `initial_sequence_len` points)
-            current_input = torch.tensor(sequence[-initial_sequence_len:], dtype=torch.float32).unsqueeze(0)
-            
-            # Get the model's prediction for the next point
-            next_point = model(current_input).item()
-            predictions.append(next_point)
-            
-            # Add the predicted point to the sequence for future predictions
-            sequence.append(next_point)
-        
-        # Graph the initial sequence along with the predicted values
-        plt.figure(figsize=(10, 6))
-        plt.plot(range(initial_sequence_len), dataset[0][:initial_sequence_len].numpy(), label='Initial Sequence', color='blue')
-        plt.plot(range(initial_sequence_len, initial_sequence_len + num_predictions), predictions, label='Predicted Sequence', color='red')
-        plt.ylabel('Price')
-        plt.xlabel('Time Step')
-        plt.title(f"Initial Sequence and Predicted Values for {num_predictions} Steps")
-        plt.legend()
-        plt.show()
+    pth_files = glob.glob(dir_path + "/*.pth")
+    for pth_file in pth_files:
+        os.remove(pth_file)
+        print(f"Deleted {pth_file}")
 
+    csv_list = glob.glob('datasets_chosen/*.csv')
+
+    for csv_file in csv_list[:2]:
+        model = create_model(csv_file)
 
 if __name__ == '__main__':
     main()
