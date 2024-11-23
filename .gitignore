@@ -1,3 +1,10 @@
 !.gitignore
 
 *.ipynb
+!*.py
+
+
+models/
+modded_datasets/
+__pycache__/
+datasets_chosen/

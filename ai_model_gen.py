@@ -36,9 +36,6 @@ class LSTMModel(nn.Module):
         output = self.fc(last_lstm_out)
         return output
 
-def loss(pred, y):
-    return ((pred - y) ** 2).mean()
-
 def train(model, loss, dataloader, optimizer):
     total_error = 0.
     for it, sequences in enumerate(dataloader):
@@ -78,9 +75,10 @@ def startTrain(model, price, volume, date, price_scaler):
 
     dataset = TimeSeriesDataset(price, volume, price_history_len + 1)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    loss = nn.MSELoss()
     fit(model, loss, dataloader, epochs=epochs)
     
-    # graphIt(dataset, model, price, date, price_scaler)
+    graphIt(dataset, model, price, date, price_scaler)
 
 def create_model(filename):
     df = pd.read_csv(filename)
@@ -119,21 +117,18 @@ def graphIt(dataset, model, price, date, price_scaler):
     price = price_scaler.inverse_transform(np.array(price).reshape(-1, 1)).flatten()
 
     future = []
-    toUse = dataset[len(dataset)-4]
+    toUse = dataset[0]
     toUse = toUse[1:]
     alpha = 0.8
-    for i in range(100):
+    for i in range(6000):
         toUse = toUse.unsqueeze(0)
         pred = model(toUse)
         price_pred = pred[-1,0].item()
         price_pred = alpha * price_pred + (1 - alpha) * toUse[-1, 0, 0].item()
         volume_pred = pred[-1,1].item()
-        print(price_pred, volume_pred)
-        print("--------------------")
         future.append(price_pred)
         toUse = toUse.squeeze(0)
         toUse = toUse[1:]
-        print(toUse.shape)
         toUse = torch.cat([toUse, torch.tensor([[price_pred, volume_pred]], dtype=torch.float32)], dim=0)
 
     future = price_scaler.inverse_transform(np.array(future).reshape(-1, 1)).flatten()
@@ -164,7 +159,7 @@ def main():
 
     csv_list = glob.glob('datasets_chosen/*.csv')
 
-    for ind,csv_file in enumerate(csv_list):
+    for ind,csv_file in enumerate(csv_list[:1]):
         print(f"Training model {ind+1}/{len(csv_list)}")
         model = create_model(csv_file)
 
