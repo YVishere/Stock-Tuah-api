@@ -25,9 +25,9 @@ class TimeSeriesDataset(Dataset):
         return sequence
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size=2, hidden_size=128, num_layers=3, output_size=2):
+    def __init__(self, input_size=2, hidden_size=256, num_layers=2, output_size=2):
         super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.2)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.4)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
