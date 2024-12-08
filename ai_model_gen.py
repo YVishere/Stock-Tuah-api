@@ -27,13 +27,16 @@ class TimeSeriesDataset(Dataset):
 class LSTMModel(nn.Module):
     def __init__(self, input_size=2, hidden_size=256, num_layers=2, output_size=2):
         super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.4)
-        self.fc = nn.Linear(hidden_size, output_size)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.4)  #Going with this because there are pretty big bumps in generated stocks now
+        self.fcP = nn.Linear(hidden_size, 1)
+        self.fcV = nn.Linear(hidden_size, 1)
 
     def forward(self, x):
         lstm_out, _ = self.lstm(x)
         last_lstm_out = lstm_out[:, -1, :]
-        output = self.fc(last_lstm_out)
+        p = self.fcP(last_lstm_out)
+        v = self.fcV(last_lstm_out)
+        output = torch.cat([p, v], dim=-1)
         return output
 
 def train(model, loss, dataloader, optimizer):
