@@ -1,7 +1,7 @@
 !.gitignore
 
 *.ipynb
-!so4.ipynb
+!working.ipynb
 *csv
 !*.py
 
